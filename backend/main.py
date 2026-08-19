@@ -39,13 +39,9 @@ class User(db.Model):
         return f'<User {self.email}>'
 
 
-@app.route('/')
+@app.route("/")
 def index():
-    user = session.get('user')
-    if user:
-        return CHANGEME(frontend redirect)
-    else:
-        return CHANGEME(frontend redirect)
+    return redirect("http://localhost:5173")
 
 @app.route('/login')
 def login():
@@ -73,6 +69,16 @@ def logout():
         session.pop("user", None)
     return redirect("/")
 
+@app.route('/api/me')
+def me():
+    user = session.get('user')
+    if user:
+        return jsonify({
+            "name": user["name"],
+            "picture": user["picture"]
+        })
+    else:
+        return jsonify({"error": "Unauthorized"}), 401
 
 if __name__ == "__main__":
     with app.app_context():
