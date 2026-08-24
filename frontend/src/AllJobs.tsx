@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useNavigate } from "react-router"
 
 import { getJobResult, loadJobs, type Job } from "@/lib/jobs"
 import { Badge } from "@/components/ui/badge"
@@ -26,6 +27,7 @@ function getBadgeVariant(status: string) {
 }
 
 export function AllJobs() {
+  const navigate = useNavigate()
   const [jobs, setJobs] = useState<Job[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -100,7 +102,19 @@ export function AllJobs() {
                 const result = getJobResult(job)
 
                 return (
-                  <TableRow key={job.id}>
+                  <TableRow
+                    key={job.id}
+                    role="link"
+                    tabIndex={0}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/jobs/${job.id}`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault()
+                        navigate(`/jobs/${job.id}`)
+                      }
+                    }}
+                  >
                     <TableCell className="font-medium">#{job.id}</TableCell>
 
                     <TableCell>

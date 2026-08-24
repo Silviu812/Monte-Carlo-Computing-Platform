@@ -38,7 +38,7 @@ async function fetchJobs(signal?: AbortSignal): Promise<JobReference[]> {
   return response.json()
 }
 
-async function fetchOneJob(
+export async function fetchOneJob(
   jobId: number,
   signal?: AbortSignal
 ): Promise<Job> {

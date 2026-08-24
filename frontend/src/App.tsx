@@ -7,6 +7,7 @@ import { Route, Routes } from "react-router"
 
 import { AllJobs } from "@/AllJobs"
 import { CreateJob } from "@/CreateJob"
+import { JobId } from "@/JobId"
 
 function LoggedIn() {
   return (
@@ -25,6 +26,7 @@ function LoggedIn() {
           <Route path="/" element={<DashboardLogged />} />
           <Route path="/jobs" element={<AllJobs />} />
           <Route path="/jobs/create" element={<CreateJob />} />
+          <Route path="/jobs/:jobId" element={<JobId />} />
         </Routes>
       </SidebarInset>
     </SidebarProvider>

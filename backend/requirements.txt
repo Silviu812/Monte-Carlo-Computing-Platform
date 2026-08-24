@@ -1,0 +1,7 @@
+Flask
+Flask-SQLAlchemy
+Authlib
+requests
+psycopg2-binary
+numpy
+gunicorn

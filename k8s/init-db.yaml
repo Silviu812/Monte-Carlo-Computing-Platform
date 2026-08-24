@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-db
+  namespace: monte-carlo
+spec:
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-db
+          image: monte-carlo-backend:latest
+          imagePullPolicy: IfNotPresent
+          command: ["python", "-c"]
+          args:
+            - |
+              from main import app
+              from extensions import db
+              import models
+
+              with app.app_context():
+                  db.create_all()
+          envFrom:
+            - secretRef:
+                name: backend-secret
+            - secretRef:
+                name: backend-db-secret
