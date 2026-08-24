@@ -1,17 +1,28 @@
 # Monte Carlo Computing Platform
 
-A distributed platform for running reproducible Monte Carlo simulations across multiple Kubernetes workers. The current simulation estimates π, aggregates partial results, and reports accuracy, uncertainty, and performance metrics through a web dashboard.
+A distributed platform for running reproducible Monte Carlo simulations across multiple Kubernetes workers. The current simulation estimates π and reports accuracy, uncertainty, and performance metrics through an authenticated web dashboard.
 
-## What this project demonstrates
+## Technology stack
 
-- Reproducible random-number generation with NumPy `SeedSequence`
-- Bounded-memory computation using batches of 10,000 points
-- Atomic work distribution with PostgreSQL `FOR UPDATE SKIP LOCKED`
+| Layer | Technologies |
+|---|---|
+| Frontend | React, TypeScript, Vite, Tailwind CSS, shadcn/ui |
+| API | Flask, Gunicorn, Flask-SQLAlchemy, Authlib |
+| Compute | Python, NumPy, `SeedSequence` |
+| Database | PostgreSQL 18 |
+| Containers | Docker, Nginx |
+| Orchestration | Kubernetes 1.36, KIND |
+| Authentication | Google OpenID Connect |
+
+## Key features
+
+- Reproducible random streams derived from the job seed and global batch index
+- Bounded-memory NumPy computation using batches of 10,000 points
+- Atomic task claiming with PostgreSQL `FOR UPDATE SKIP LOCKED`
 - Horizontal processing across five independent worker pods
-- Asynchronous job scheduling and result aggregation
-- Google OpenID Connect authentication
-- Containerized React and Flask applications
-- A multi-node local Kubernetes deployment with persistent storage
+- Asynchronous scheduling and aggregation of partial results
+- Persistent PostgreSQL storage through a StatefulSet and PVC
+- Dashboard for job creation, history, status, and detailed statistics
 
 ## Architecture
 
@@ -24,39 +35,37 @@ flowchart LR
     S[Scheduler<br/>1 replica] -->|creates JobTasks| P
     W[NumPy Workers<br/>5 replicas] -->|atomically claim tasks| P
     W -->|store partial results| P
-    S -->|aggregate completed tasks| P
+    S -->|aggregate results| P
 ```
 
-### Execution flow
+## How computation works
 
-1. An authenticated user submits a seed and a total point count.
-2. The scheduler divides the job into NumPy batches of 10,000 points.
-3. Up to 10,000 batches are grouped into one database-backed `JobTask`.
-4. Worker pods poll PostgreSQL and atomically claim pending tasks.
-5. Every batch receives an independent deterministic stream derived from:
+1. A user submits a seed and the total number of points.
+2. The scheduler divides the job into batches and stores task ranges in PostgreSQL.
+3. Worker pods atomically claim pending tasks, preventing duplicate processing.
+4. Each batch receives a deterministic random stream:
 
    ```python
    np.random.SeedSequence([job_seed, batch_index])
    ```
 
-6. Workers store their partial counts in PostgreSQL.
-7. The scheduler aggregates all completed tasks and calculates the final statistics.
+5. The scheduler aggregates all partial counts and calculates the final result.
 
-Because each random stream depends on the job seed and global batch index, results do not depend on which worker processes a batch or on execution order.
+The result is reproducible regardless of worker assignment or execution order.
 
-## Result metrics
+## Reported statistics
 
 | Category | Metrics |
 |---|---|
 | Estimate | Estimated π, points inside/outside the circle |
-| Accuracy | Absolute error and relative error |
+| Accuracy | Absolute and relative error |
 | Uncertainty | Standard error and approximate 95% confidence interval |
 | Performance | Wall-clock runtime and points processed per second |
 | Traceability | Seed, timestamps, task status, and worker pod ID |
 
 ## Example result
 
-Measured locally with five worker pods:
+Local execution using five worker pods:
 
 | Metric | Value |
 |---|---:|
@@ -68,184 +77,25 @@ Measured locally with five worker pods:
 | Runtime | 5.04 s |
 | Throughput | 198,605,117 points/s |
 
-> This is a single local benchmark and will vary with CPU resources, Docker configuration, and worker count.
+> This is a single local benchmark; results vary with CPU resources, Docker configuration, and worker count.
 
-## Technology stack
-
-| Layer | Technologies |
-|---|---|
-| Frontend | React, TypeScript, Vite, Tailwind CSS, shadcn/ui |
-| API | Flask, Gunicorn, Flask-SQLAlchemy, Authlib |
-| Compute | Python, NumPy, `SeedSequence` |
-| Database | PostgreSQL 18 |
-| Containers | Docker, Nginx |
-| Orchestration | Kubernetes 1.36, KIND |
-
-## Repository structure
+## Project structure
 
 ```text
-.
-├── backend/
-│   ├── main.py          # API and Google OIDC routes
-│   ├── scheduler.py     # Job decomposition and result aggregation
-│   ├── worker.py        # Atomic task claiming and NumPy computation
-│   ├── models.py        # User, Job, JobTask, and Result models
-│   ├── extensions.py
-│   ├── requirements.txt
-│   └── Dockerfile
-├── frontend/
-│   ├── src/             # Dashboard, job creation/list/detail pages
-│   ├── nginx.conf       # SPA fallback and backend reverse proxy
-│   └── Dockerfile
-├── k8s/
-│   ├── postgres.yaml    # PostgreSQL StatefulSet, Service, and PVC
-│   ├── init-db.yaml     # One-time schema initialization Job
-│   ├── backend.yaml     # Flask Deployment and Service
-│   ├── compute.yaml     # Scheduler and worker Deployments
-│   └── frontend.yaml    # React/Nginx Deployment and Service
-└── kind-config.yaml     # Three-node KIND cluster
+backend/       Flask API, scheduler, workers, and database models
+frontend/      React dashboard served by Nginx
+k8s/           Kubernetes workloads, Services, and persistent storage
+kind-config.yaml
 ```
 
-## Running locally with KIND
+## Running the project
 
-### Prerequisites
+The complete local deployment guide is available in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-- Docker Desktop
-- `kind`
-- `kubectl`
-- A Google OAuth client
+## Next improvements
 
-Register this development callback in Google Cloud Console:
-
-```text
-http://localhost:8080/authorize
-```
-
-Create `backend/.env` locally. It is excluded from Git and Docker images.
-
-```dotenv
-SECRET_KEY=replace-with-a-random-secret
-GOOGLE_CLIENT_ID=replace-with-your-client-id
-GOOGLE_CLIENT_SECRET=replace-with-your-client-secret
-```
-
-### 1. Build the images
-
-```powershell
-docker build -t monte-carlo-frontend:latest ./frontend
-docker build -t monte-carlo-backend:latest ./backend
-```
-
-### 2. Create the cluster and load local images
-
-```powershell
-kind create cluster --name monte-carlo --config kind-config.yaml
-kind load docker-image monte-carlo-frontend:latest --name monte-carlo
-kind load docker-image monte-carlo-backend:latest --name monte-carlo
-```
-
-### 3. Create the namespace and local Secrets
-
-```powershell
-kubectl create namespace monte-carlo
-
-kubectl create secret generic postgres-secret `
-  --namespace monte-carlo `
-  --from-literal=POSTGRES_DB=flask_oidc `
-  --from-literal=POSTGRES_USER=postgres `
-  --from-literal=POSTGRES_PASSWORD=change-me
-
-kubectl create secret generic backend-secret `
-  --namespace monte-carlo `
-  --from-env-file=./backend/.env
-
-kubectl create secret generic backend-db-secret `
-  --namespace monte-carlo `
-  --from-literal=DATABASE_URL=postgresql://postgres:change-me@postgres:5432/flask_oidc
-```
-
-### 4. Deploy the platform
-
-```powershell
-kubectl apply -f ./k8s/postgres.yaml
-kubectl wait --for=condition=ready pod/postgres-0 -n monte-carlo --timeout=120s
-
-kubectl apply -f ./k8s/init-db.yaml
-kubectl wait --for=condition=complete job/init-db -n monte-carlo --timeout=120s
-
-kubectl apply -f ./k8s/backend.yaml
-kubectl apply -f ./k8s/compute.yaml
-kubectl apply -f ./k8s/frontend.yaml
-
-kubectl get pods -n monte-carlo
-```
-
-Expected application topology:
-
-```text
-2 frontend pods
-2 backend API pods
-1 scheduler pod
-5 worker pods
-1 PostgreSQL pod
-```
-
-### 5. Open the application
-
-Keep this command running:
-
-```powershell
-kubectl port-forward service/frontend 8080:80 -n monte-carlo
-```
-
-Open [http://localhost:8080](http://localhost:8080).
-
-## Useful commands
-
-Check application state:
-
-```powershell
-kubectl get pods -n monte-carlo
-kubectl logs deployment/scheduler -n monte-carlo
-kubectl logs -l app=worker -n monte-carlo --prefix=true
-```
-
-Inspect how tasks were distributed between worker pods:
-
-```powershell
-kubectl exec -n monte-carlo postgres-0 -- psql -U postgres -d flask_oidc -c "SELECT job_id, worker_id, status, points_processed, time_taken FROM job_task ORDER BY id;"
-```
-
-Scale the compute pool:
-
-```powershell
-kubectl scale deployment/worker --replicas=10 -n monte-carlo
-```
-
-Delete the local cluster:
-
-```powershell
-kind delete cluster --name monte-carlo
-```
-
-## API
-
-| Method | Route | Description |
-|---|---|---|
-| `GET` | `/api/me` | Return the authenticated user |
-| `GET` | `/api/jobs` | List the current user's jobs |
-| `POST` | `/api/jobs` | Create a simulation job |
-| `GET` | `/api/jobs/{id}` | Return job status and final metrics |
-| `GET` | `/login` | Start Google OIDC authentication |
-| `GET` | `/logout` | Clear the application session |
-
-## Current limitations
-
-The current version is a working MVP. Planned production-hardening work includes:
-
-- Alembic database migrations instead of `db.create_all()`
-- Recovery and retry for workers interrupted while a task is running
+- Alembic database migrations
+- Recovery and retry for interrupted tasks
 - Job cancellation and live task-level progress
-- Backend pagination to avoid one request per job in the dashboard
 - Automated unit, integration, and end-to-end tests
-- Gateway API or a managed cloud load balancer instead of local port-forwarding
+- Gateway API or a managed cloud load balancer
